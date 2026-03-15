@@ -1,0 +1,40 @@
+import pandas as pd
+import json
+
+df_queue = pd.read_csv('/Users/danielcai/Downloads/GridGate_Cost_Projection/Datasets/Datasets/GI_Interactive_Queue.csv', header=1)
+df_master = pd.read_csv('/Users/danielcai/Downloads/GridGate_Cost_Projection/Datasets/Datasets/gi_master_extracted_data.csv')
+
+#copy paste from previous datasets, clean and transform in order to for the data to be used
+df_master['project_ids'] = df_master['project_ids'].str.split(',') 
+df_master = df_master.explode('project_ids')
+df_master['project_ids'] = df_master['project_ids'].str.strip()
+
+# Parse the project_cost_map_json (apparently needed to transforms strings into actual dictionary objects)
+df_master['project_cost_map'] = df_master['project_cost_map_json'].apply(lambda x: json.loads(x) if pd.notna(x) and x != '{}' else {})
+# cost
+df_master['cost'] = df_master.apply(lambda row: row['project_cost_map'].get(row['project_ids'], None), axis=1)
+
+df_costs = df_master[['project_ids', 'study_cycle', 'phase', 'issue_date', 'total_upgrade_cost', 'in_service_timeline', 'cost']].copy()
+# Merge with queue data on project ID
+df_integrated = pd.merge(df_queue, df_costs, left_on='Project #', right_on='project_ids', how='left')
+print(df_integrated.head())
+
+# Modeling through regression modeling (basic linear regression)
+from sklearn.linear_model import LinearRegression
+
+# Prepare data for modeling: drop rows with missing cost or Summer MW
+df_model = df_integrated.dropna(subset=['cost', 'Summer MW'])
+
+x = df_model[['Summer MW']]
+y = df_model['cost']
+
+model = LinearRegression()
+model.fit(x, y)
+
+print(f"Intercept: {model.intercept_}")
+print(f"Coefficient for Summer MW: {model.coef_[0]}")
+
+# Example prediction
+example_mw = 100
+predicted_cost = model.predict([[example_mw]])
+print(f"Predicted cost for {example_mw} MW: {predicted_cost[0]}")
